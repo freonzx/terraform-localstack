@@ -1,0 +1,39 @@
+version: "3"
+
+services:
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - '4568-4576:4568-4576'
+      - '8055:8080'
+    environment:
+      - SERVICES=s3,sqs
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - DEFAULT_REGION=sa-east-1
+      - DEBUG=1
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "/private${TMPDIR}:/tmp/localstack"
+
+  setup-resources:
+    image: mesosphere/aws-cli
+    volumes:
+      - ./json:/project/json
+    environment:
+      - AWS_ACCESS_KEY_ID=iti
+      - AWS_SECRET_ACCESS_KEY=iti
+      - AWS_DEFAULT_REGION=sa-east-1
+    entrypoint: /bin/sh -c
+    command: >
+      "
+        sleep 10;
+
+        aws --endpoint-url=http://localstack:4566 s3 mb s3://s3test
+        aws --endpoint-url=http://localstack:4566 sqs create-queue --queue-name MyQueue --attributes file://json/policy.json
+        aws --endpoint-url=http://localstack:4566 s3api put-bucket-notification-configuration --bucket s3test --notification-configuration file://json/s3.json
+        aws --endpoint-url=http://localstack:4566 s3api put-object --bucket s3test --key test.txt --body ./json/test.txt
+        sleep 3;
+        aws sqs --endpoint-url http://localstack:4566 receive-message --queue-url http://localstack:4566/000000000000/MyQueue --attribute-names All --message-attribute-names All --max-number-of-messages 10
+      "
+    depends_on:
+      - localstack
